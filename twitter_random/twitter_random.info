@@ -1,0 +1,6 @@
+; $Id$
+name = Twitter Random
+description = Send a message randomly
+core = 6.x
+dependencies[] = twitter
+dependencies[] = oauth

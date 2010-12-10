@@ -1,0 +1,80 @@
+<?php
+
+function twitter_random_menu() {
+  $items['admin/settings/twitter/random'] = array(
+    'title' => 'Random',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('twitter_random_admin_settings'),
+    'access arguments' => array('administar site configuration'),
+    'file' => 'twitter_random.pages.inc',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 99, //遠慮気味に99
+  );
+  return $items;
+}
+
+function twitter_random_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+
+  switch ($op) {
+    case 'view':
+      if (variable_get('twitter_random_on', FALSE)) {
+        $account = variable_get('twitter_random_account', '');
+        $next_time = variable_get('twitter_random_next_time', 0);
+        $now_time = time();
+        $setting_status = variable_get('twitter_random_post_format', 'New post: !title !tinyurl');
+        $target_types = variable_get('twitter_random_types', '');
+
+        if (!empty($account) && ($now_time > $next_time) && (count($target_types))) {
+          $tweet_nid = _twitter_random_get_nid($target_types);
+          $tweet_node = node_load($tweet_nid);
+
+          module_load_include('inc', 'twitter');
+
+          $twitter_account = twitter_account_load($account);
+          $replacements = array('!title' => $tweet_node->title,
+                                '!url' => url('node/'. $tweet_node->nid, array('absolute' => TRUE, 'alias' => TRUE)),
+                                '!url-alias' => url('node/'. $tweet_node->nid, array('absolute' => TRUE)),
+                                '!user' => $tweet_node->name);
+          if (strstr($setting_status, '!tinyurl') !== FALSE) {
+            $replacements['!tinyurl'] = twitter_shorten_url(url('node/'. $tweet_node->nid, array('absolute' => TRUE)));
+          }
+
+          $status = strtr($setting_status, $replacements);
+          try {
+            $result = twitter_set_status($twitter_account, $status);
+            drupal_set_message(t('Successfully random Twitter'));
+
+            // 次回の時間をセット
+            $interval = variable_get('twitter_random_interval', 0);
+            variable_set('twitter_random_next_time', $now_time + ($interval * 60 * 60));
+          }
+          catch (TwitterException $e) {
+            // とりあえずエラーは表示しないように。
+            //drupal_set_message(t('An error occurred when random twitter: %code %error', array('%code' => $result->code, '%error' => $result->error)), 'warning');
+            // 10分待ってリトライ
+            variable_set('twitter_random_next_time', $now_time + (60 * 10));
+          }
+        }
+      }
+      break;
+  }
+}
+
+function _twitter_random_get_nid($target_types) {
+
+  if (count($target_types)) {
+    // 掲載かつ選ばれた node type のみ対象。in句でplaceholder使う方法が不明。。。
+    $types = "'" . implode("','", $target_types) . "'";
+    $query = "select count(`nid`) from {node} where `status` = 1 and `type` in ({$types})";
+    $node_count = db_result(db_query($query));
+
+    $index = mt_rand(1, $node_count);
+
+    $query = "select `nid` from {node} where `status` = 1 and `type` in ({$types})";
+    $nid = db_result(db_query_range($query, $index - 1, 1));
+
+    return $nid;
+  }
+
+  return FALSE;
+}
